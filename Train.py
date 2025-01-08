@@ -1,0 +1,172 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Created on Sun Dec 15 18:52:26 2024
+
+@author: abolfazl
+"""
+
+import os
+import cv2
+import pandas as pd
+import torch
+from ultralytics import YOLO  
+
+needCropping = True
+tileSize = 512
+overlap = 150
+epochs = 50
+batchSize = 8
+object_boundary_threshold = 0.3  # Minimum fraction of the bounding box that must remain in the crop to keep it
+
+def update_txt_file(txt_file, new_paths):
+    """
+    Update the given .txt file with the new paths of cropped images.
+    """
+    with open(txt_file, "w") as f:
+        for path in new_paths:
+            f.write(f"{path}\n")
+
+def crop_images_and_labels(
+    image_dir, label_dir, output_image_dir, output_label_dir, txt_file, cropped_txt_file, tile_size=512, overlap=0
+):
+    """
+    Crop images and adjust labels for all files inside the folder.
+    Save the cropped images and labels in the output directories.
+    Create a new txt file for the cropped images.
+    """
+    os.makedirs(output_image_dir, exist_ok=True)
+    os.makedirs(output_label_dir, exist_ok=True)
+
+    image_files = [f for f in os.listdir(image_dir) if f.endswith(('.jpg', '.png', '.jpeg'))]
+    new_paths = []
+
+    for image_file in image_files:
+        image_path = os.path.join(image_dir, image_file)
+        image = cv2.imread(image_path)
+        if image is None:
+            print(f"Error reading image: {image_file}")
+            continue
+
+        h, w, _ = image.shape
+        label_file = os.path.splitext(image_file)[0] + ".txt"
+        label_path = os.path.join(label_dir, label_file)
+
+        if not os.path.exists(label_path):
+            print(f"Label file not found: {label_file}")
+            continue
+
+        labels = pd.read_csv(label_path, sep=" ", header=None)
+        labels.columns = ["class", "x_center", "y_center", "width", "height"]
+        labels["x_center"] *= w
+        labels["y_center"] *= h
+        labels["width"] *= w
+        labels["height"] *= h
+
+        step = tile_size - overlap
+        tile_id = 0
+        for y in range(0, h, step):
+            for x in range(0, w, step):
+                crop = image[y:y + tile_size, x:x + tile_size]
+                if crop.shape[0] != tile_size or crop.shape[1] != tile_size:
+                    continue
+
+                # Find labels within the crop region
+                tile_labels = labels[
+                    (labels["x_center"] >= x) & (labels["x_center"] < x + tile_size) &
+                    (labels["y_center"] >= y) & (labels["y_center"] < y + tile_size)
+                ].copy()
+
+                # Adjust coordinates of labels for the crop
+                tile_labels["x_center"] -= x
+                tile_labels["y_center"] -= y
+
+                # Filter out bounding boxes that are partially outside the crop
+                valid_labels = []
+                for _, row in tile_labels.iterrows():
+                    x1 = row["x_center"] - row["width"] / 2
+                    y1 = row["y_center"] - row["height"] / 2
+                    x2 = row["x_center"] + row["width"] / 2
+                    y2 = row["y_center"] + row["height"] / 2
+
+                    # Calculate intersection area between the box and the crop
+                    inter_x1 = max(x1, 0)
+                    inter_y1 = max(y1, 0)
+                    inter_x2 = min(x2, tile_size)
+                    inter_y2 = min(y2, tile_size)
+                    intersection_area = max(0, inter_x2 - inter_x1) * max(0, inter_y2 - inter_y1)
+                    original_area = (x2 - x1) * (y2 - y1)
+
+                    # Keep the box if the intersection area is above a threshold
+                    if intersection_area / original_area >= object_boundary_threshold:
+                        row["x_center"] = (inter_x1 + inter_x2) / 2
+                        row["y_center"] = (inter_y1 + inter_y2) / 2
+                        row["width"] = inter_x2 - inter_x1
+                        row["height"] = inter_y2 - inter_y1
+                        valid_labels.append(row)
+
+                # Skip saving this crop if no valid labels remain
+                if not valid_labels:
+                    continue
+
+                valid_labels_df = pd.DataFrame(valid_labels)
+
+                # Normalize the adjusted labels for YOLO format
+                valid_labels_df["x_center"] /= tile_size
+                valid_labels_df["y_center"] /= tile_size
+                valid_labels_df["width"] /= tile_size
+                valid_labels_df["height"] /= tile_size
+
+                # Save cropped image
+                tile_image_filename = f"{os.path.splitext(image_file)[0]}_tile_{tile_id}.jpg"
+                tile_image_path = os.path.join(output_image_dir, tile_image_filename)
+                cv2.imwrite(tile_image_path, crop)
+
+                # Save adjusted labels
+                tile_label_filename = f"{os.path.splitext(image_file)[0]}_tile_{tile_id}.txt"
+                tile_label_path = os.path.join(output_label_dir, tile_label_filename)
+                valid_labels_df.to_csv(tile_label_path, sep=" ", header=False, index=False)
+
+                # Store new image path for updating the txt file
+                new_paths.append(tile_image_path)
+
+                tile_id += 1
+
+        print(f"Processed image: {image_file}")
+
+    update_txt_file(cropped_txt_file, new_paths)
+
+if needCropping:
+    # Crop the training images and save the results
+    crop_images_and_labels(
+        image_dir="datasets/GeoMap/images/train",
+        label_dir="datasets/GeoMap/labels/train",
+        output_image_dir="datasets/GeoMap/cropped/images/train",
+        output_label_dir="datasets/GeoMap/cropped/labels/train",
+        txt_file="datasets/GeoMap/train.txt",  
+        cropped_txt_file="datasets/GeoMap/train_cropped.txt",  
+        tile_size=tileSize,
+        overlap=overlap
+    )
+    
+    # Crop the validation images and save the results
+    crop_images_and_labels(
+        image_dir="datasets/GeoMap/images/val",
+        label_dir="datasets/GeoMap/labels/val",
+        output_image_dir="datasets/GeoMap/cropped/images/val",
+        output_label_dir="datasets/GeoMap/cropped/labels/val",
+        txt_file="datasets/GeoMap/val.txt", 
+        cropped_txt_file="datasets/GeoMap/val_cropped.txt", 
+        tile_size=tileSize,
+        overlap=overlap
+    )
+    
+model = YOLO("yolo11x.pt")  
+
+model.train(
+    data="datasets/GeoMap/data.yaml",
+    epochs=epochs, 
+    imgsz=tileSize,  # Image size (same as the crop size)
+    batch=batchSize,  
+    device="cuda" if torch.cuda.is_available() else "cpu",  
+)

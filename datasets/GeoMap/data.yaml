@@ -1,0 +1,23 @@
+names:
+  0: Landslides
+  1: Strike
+  2: Spring
+  3: Mine_Pit
+  4: Hillside debris
+  5: Feuchte gebiete
+  6: Torf
+  7: Bergsturz
+  8: Background
+
+path: ../datasets/GeoMap # dataset root dir
+train: train_cropped.txt
+val: val_cropped.txt
+#test: test.txt
+
+#augmentation:
+  #mosaic: True       # Enable mosaic augmentation
+  #mixup: True        # Enable mixup augmentation
+  #hsv_h: 0.015       # Hue augmentation
+  #hsv_s: 0.7         # Saturation augmentation
+  #hsv_v: 0.4         # Value augmentation
+  
