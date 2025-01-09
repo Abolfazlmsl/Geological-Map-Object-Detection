@@ -16,8 +16,10 @@ datasets/GeoMap/images/train/5610.png
 datasets/GeoMap/images/train/5611.png
 datasets/GeoMap/images/train/5612.png
 datasets/GeoMap/images/train/5613.png
+datasets/GeoMap/images/train/5711_Boppard.png
 datasets/GeoMap/images/train/5712.png
 datasets/GeoMap/images/train/5713.png
+datasets/GeoMap/images/train/5910.png
 datasets/GeoMap/images/train/5912_Kaub.png
 datasets/GeoMap/images/train/6003.png
 datasets/GeoMap/images/train/6004.png
