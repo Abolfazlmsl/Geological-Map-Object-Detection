@@ -11,9 +11,10 @@ import os
 from ultralytics import YOLO
 import numpy as np
 
-overlap = 200
-tileSize = 600
-threshold = 0.3
+tileSize = 400
+overlap = 150
+threshold = 0.1
+iou_threshold = 0.1
 
 # Define colors for different classes
 CLASS_COLORS = {
@@ -25,19 +26,50 @@ CLASS_COLORS = {
     5: (0, 255, 255),  # Feuchte - Light blue
     6: (0, 0, 0),  # Torf - Black
     7: (127, 127, 127),  # Bergsturz - Gray
+    8: (50, 20, 60),
+    9: (60, 50, 20),
+    10: (200, 150, 80),
+    11: (100, 200, 150),
+    12: (12, 52, 83),
 }
 
 # Define class names
 CLASS_NAMES = {
-    0: "Landslide",
+    0: "Landslide 1",
     1: "Strike",
-    2: "Spring",
-    3: "Minepit",
+    2: "Spring 1",
+    3: "Minepit 1",
     4: "Hillside",
     5: "Feuchte",
     6: "Torf",
     7: "Bergsturz",
+    8: "Landslide 2",
+    9: "Spring 2",
+    10: "Spring 3",
+    11: "Minepit 2",
+    12: "Spring B2",
 }
+
+# Add threshold for each class
+CLASS_THRESHOLDS = {
+    0: 0.5,  # Landslide 1
+    1: 0.5,  # Strike
+    2: 0.5,  # Spring 1
+    3: 0.5,  # Minepit 1
+    4: 0.5,  # Hillside
+    5: 0.5,  # Feuchte
+    6: 0.5,  # Torf
+    7: 0.5,  # Bergsturz
+    8: 0.5,  # Landslide 2
+    9: 0.5,  # Spring 2
+    10: 0.5,  # Spring 3
+    11: 0.5,  # Minepit 2
+    12: 0.5,  # Spring B2
+}
+
+# Classes to exclude completely (will not be shown on the image)
+EXCLUDED_CLASSES = {9}  
+
 
 def non_max_suppression(detections, iou_threshold=0.5):
     """
@@ -73,8 +105,8 @@ def non_max_suppression(detections, iou_threshold=0.5):
         filtered_indices = np.where(ious < iou_threshold)[0]
         indices = remaining[filtered_indices]
 
-
     return [detections[k] for k in keep]
+
 
 def compute_iou(box1, box2):
     """
@@ -98,6 +130,7 @@ def compute_iou(box1, box2):
     union_area = box1_area + box2_area - inter_area
 
     return inter_area / union_area
+
 
 def detect_and_reconstruct(image_path, model, output_dir, tile_size=512, overlap=200, threshold=0.3):
     """
@@ -125,9 +158,17 @@ def detect_and_reconstruct(image_path, model, output_dir, tile_size=512, overlap
             crop_detections = results[0].boxes
 
             for box in crop_detections:
-                x1, y1, x2, y2 = map(int, box.xyxy[0])  # Bounding box coordinates
-                cls = int(box.cls[0])  # Class ID
-                conf = float(box.conf[0])  # Confidence score
+                x1, y1, x2, y2 = map(int, box.xyxy[0])  
+                cls = int(box.cls[0])
+                conf = float(box.conf[0])  
+
+                
+                if cls in EXCLUDED_CLASSES:
+                    continue
+
+                
+                if conf < CLASS_THRESHOLDS.get(cls, threshold):
+                    continue
 
                 # Translate box coordinates to original image scale
                 adjusted_x1 = x1 + x
@@ -138,7 +179,7 @@ def detect_and_reconstruct(image_path, model, output_dir, tile_size=512, overlap
                 detections.append((adjusted_x1, adjusted_y1, adjusted_x2, adjusted_y2, cls, conf))
 
     # Apply Non-Maximum Suppression to remove redundant boxes
-    detections = non_max_suppression(detections)
+    detections = non_max_suppression(detections, iou_threshold)
 
     # Draw detections on the result image
     for (x1, y1, x2, y2, cls, conf) in detections:
@@ -159,6 +200,7 @@ def detect_and_reconstruct(image_path, model, output_dir, tile_size=512, overlap
     output_path = os.path.join(output_dir, image_name.replace(".jpg", "_detected.jpg").replace(".png", "_detected.png"))
     cv2.imwrite(output_path, result_image)
 
+
 # Initialize YOLO model
 model = YOLO("best.pt")
 
@@ -173,4 +215,6 @@ os.makedirs(output_dir, exist_ok=True)
 for image_file in os.listdir(input_dir):
     if image_file.lower().endswith(('.png', '.jpg', '.jpeg')):
         image_path = os.path.join(input_dir, image_file)
-        detect_and_reconstruct(image_path, model, output_dir, tileSize, overlap, threshold)
+        print(f"Processing {image_file}...")
+        detect_and_reconstruct(image_path, model, output_dir, tile_size=tileSize, overlap=overlap, threshold=threshold)
+        print(f"Saved results for {image_file} to {output_dir}")
