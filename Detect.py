@@ -11,8 +11,8 @@ import os
 from ultralytics import YOLO
 import numpy as np
 
-tileSize = 400
-overlap = 150
+tileSize = 128
+overlap = 75
 threshold = 0.1
 iou_threshold = 0.1
 
@@ -68,7 +68,7 @@ CLASS_THRESHOLDS = {
 }
 
 # Classes to exclude completely (will not be shown on the image)
-EXCLUDED_CLASSES = {9}  
+EXCLUDED_CLASSES = {}  
 
 
 def non_max_suppression(detections, iou_threshold=0.5):

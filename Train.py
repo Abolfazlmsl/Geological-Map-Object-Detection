@@ -13,10 +13,10 @@ import torch
 from ultralytics import YOLO  
 
 needCropping = True
-tileSize = 300
-overlap = 100
+tileSize = 150
+overlap = 50
 epochs = 300
-batchSize = 32
+batchSize = 16
 object_boundary_threshold = 0.1  # Minimum fraction of the bounding box that must remain in the crop to keep it
 
 def update_txt_file(txt_file, new_paths):
@@ -168,5 +168,7 @@ model.train(
     epochs=epochs, 
     imgsz=tileSize,  # Image size (same as the crop size)
     batch=batchSize,  
+    multi_scale=True,
+    patience = 300,
     device=[0, 1] if torch.cuda.is_available() else "cpu",  
 )
