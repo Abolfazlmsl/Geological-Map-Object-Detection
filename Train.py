@@ -9,31 +9,33 @@ Created on Sun Dec 15 18:52:26 2024
 import os
 import cv2
 import pandas as pd
+import numpy as np
+import random
 import torch
-from ultralytics import YOLO  
+from ultralytics import YOLO
 
-needCropping = True
-tileSize = 150
+# Configuration
+need_cropping = True
+need_augmentation = True
+tile_size = 150
 overlap = 50
 epochs = 300
-batchSize = 16
-object_boundary_threshold = 0.1  # Minimum fraction of the bounding box that must remain in the crop to keep it
+batch_size = 16
+object_boundary_threshold = 0.1  # Minimum fraction of the bounding box that must remain in the crop
+class_balance_threshold = 1000  # Minimum number of samples per class for balance
+augmentation_repeats = 5  # Number of times to augment underrepresented classes
 
 def update_txt_file(txt_file, new_paths):
     """
-    Update the given .txt file with the new paths of cropped images.
+    Update the .txt file with new paths of cropped or augmented images.
     """
     with open(txt_file, "w") as f:
         for path in new_paths:
             f.write(f"{path}\n")
 
-def crop_images_and_labels(
-    image_dir, label_dir, output_image_dir, output_label_dir, txt_file, cropped_txt_file, tile_size=512, overlap=0
-):
+def crop_images_and_labels(image_dir, label_dir, output_image_dir, output_label_dir, txt_file, cropped_txt_file, tile_size=512, overlap=0):
     """
-    Crop images and adjust labels for all files inside the folder.
-    Save the cropped images and labels in the output directories.
-    Create a new txt file for the cropped images.
+    Crop images and adjust labels for YOLO format. Save results and update the .txt file with new image paths.
     """
     os.makedirs(output_image_dir, exist_ok=True)
     os.makedirs(output_label_dir, exist_ok=True)
@@ -136,39 +138,166 @@ def crop_images_and_labels(
 
     update_txt_file(cropped_txt_file, new_paths)
 
-if needCropping:
-    # Crop the training images and save the results
-    crop_images_and_labels(
-        image_dir="datasets/GeoMap/images/train",
-        label_dir="datasets/GeoMap/labels/train",
-        output_image_dir="datasets/GeoMap/cropped/images/train",
-        output_label_dir="datasets/GeoMap/cropped/labels/train",
-        txt_file="datasets/GeoMap/train.txt",  
-        cropped_txt_file="datasets/GeoMap/train_cropped.txt",  
-        tile_size=tileSize,
-        overlap=overlap
-    )
-    
-    # Crop the validation images and save the results
-    crop_images_and_labels(
-        image_dir="datasets/GeoMap/images/val",
-        label_dir="datasets/GeoMap/labels/val",
-        output_image_dir="datasets/GeoMap/cropped/images/val",
-        output_label_dir="datasets/GeoMap/cropped/labels/val",
-        txt_file="datasets/GeoMap/val.txt", 
-        cropped_txt_file="datasets/GeoMap/val_cropped.txt", 
-        tile_size=tileSize,
-        overlap=overlap
-    )
-    
-model = YOLO("yolo11x.pt")  
+def apply_single_class_augmentation(image, labels, target_class):
+    """
+    Apply augmentations to an image and labels, targeting a specific class.
+    """
+    aug_image = image.copy()
+    aug_labels = labels.copy()
 
-model.train(
-    data="datasets/GeoMap/data.yaml",
-    epochs=epochs, 
-    imgsz=tileSize,  # Image size (same as the crop size)
-    batch=batchSize,  
-    multi_scale=True,
-    patience = 300,
-    device=[0, 1] if torch.cuda.is_available() else "cpu",  
-)
+    # Select only target class labels
+    target_labels = aug_labels[aug_labels["class"] == target_class]
+
+    # Apply random augmentations
+    if random.random() > 0.5:
+        aug_image = cv2.flip(aug_image, 1)  # Horizontal flip
+        target_labels["x_center"] = 1 - target_labels["x_center"]
+
+    # Add other augmentations if needed (rotation, scaling, etc.)
+    if random.random() > 0.5:
+        aug_image = cv2.convertScaleAbs(aug_image, alpha=1.2, beta=50)
+
+    aug_labels.update(target_labels)
+    return aug_image, aug_labels
+
+def update_balanced_txt_file(txt_file, new_paths):
+    """
+    Append new paths of augmented images to the .txt file.
+    """
+    with open(txt_file, "a") as f:  # Append mode
+        for path in new_paths:
+            f.write(f"{path}\n")
+
+def balance_classes(image_dir, label_dir, txt_file):
+    """
+    Balance classes by oversampling underrepresented classes with augmentations,
+    and update the txt file with new image paths.
+    """
+    # Calculate class distribution
+    label_files = [f for f in os.listdir(label_dir) if f.endswith(".txt")]
+    class_counts = {}
+    for label_file in label_files:
+        labels = pd.read_csv(os.path.join(label_dir, label_file), sep=" ", header=None)
+        labels.columns = ["class", "x_center", "y_center", "width", "height"]
+        for class_id in labels["class"]:
+            class_counts[class_id] = class_counts.get(class_id, 0) + 1
+
+    print(f"Initial class distribution: {class_counts}")
+
+    new_image_paths = []
+
+    for class_id, count in class_counts.items():
+        if count >= class_balance_threshold:
+            continue
+
+        print(f"Balancing class {class_id} (current count: {count})")
+
+        images_with_class = []
+
+        for label_file in label_files:
+            file_path = os.path.join(label_dir, label_file)
+
+            labels = pd.read_csv(file_path, sep=" ", header=None)
+            if labels.shape[1] != 5:
+                print(f"Invalid format in file {label_file}")
+                continue
+            labels.columns = ["class", "x_center", "y_center", "width", "height"]
+            
+            if class_id in labels["class"].values:
+                images_with_class.append(label_file)
+
+        for _ in range(augmentation_repeats):
+            for label_file in images_with_class:
+                image_path = os.path.join(image_dir, label_file.replace(".txt", ".jpg"))
+                image = cv2.imread(image_path)
+
+                if image is None:
+                    continue
+
+                labels = pd.read_csv(os.path.join(label_dir, label_file), sep=" ", header=None)
+                labels.columns = ["class", "x_center", "y_center", "width", "height"]
+
+                aug_image, aug_labels = apply_single_class_augmentation(image, labels, class_id)
+
+                # Save augmented image
+                aug_image_filename = f"{os.path.splitext(label_file)[0]}_aug_{random.randint(0, 10000)}.jpg"
+                aug_image_path = os.path.join(image_dir, aug_image_filename)
+                cv2.imwrite(aug_image_path, aug_image)
+
+                # Save augmented labels
+                aug_label_filename = f"{os.path.splitext(label_file)[0]}_aug_{random.randint(0, 10000)}.txt"
+                aug_label_path = os.path.join(label_dir, aug_label_filename)
+                aug_labels.to_csv(aug_label_path, sep=" ", header=False, index=False)
+
+                # Add new image path to list for txt file
+                new_image_paths.append(aug_image_path)
+
+    # Update the txt file with new paths
+    update_balanced_txt_file(txt_file, new_image_paths)
+
+    print(f"Balanced class distribution: {class_counts}")
+
+
+if __name__ == "__main__":
+    
+    image_dir = "datasets/GeoMap/images/train"
+    label_dir = "datasets/GeoMap/labels/train"
+    output_image_dir = "datasets/GeoMap/cropped/images/train"
+    output_label_dir = "datasets/GeoMap/cropped/labels/train"
+    txt_file = "datasets/GeoMap/train.txt"
+    cropped_txt_file = "datasets/GeoMap/train_cropped.txt"
+
+    val_image_dir = "datasets/GeoMap/images/val"
+    val_label_dir = "datasets/GeoMap/labels/val"
+    val_output_image_dir = "datasets/GeoMap/cropped/images/val"
+    val_output_label_dir = "datasets/GeoMap/cropped/labels/val"
+    val_txt_file = "datasets/GeoMap/val.txt"
+    val_cropped_txt_file = "datasets/GeoMap/val_cropped.txt"
+
+    if need_cropping:
+        crop_images_and_labels(
+            image_dir=image_dir,
+            label_dir=label_dir,
+            output_image_dir=output_image_dir,
+            output_label_dir=output_label_dir,
+            txt_file=txt_file,
+            cropped_txt_file=cropped_txt_file,
+            tile_size=tile_size,
+            overlap=overlap,
+        )
+
+        crop_images_and_labels(
+            image_dir=val_image_dir,
+            label_dir=val_label_dir,
+            output_image_dir=val_output_image_dir,
+            output_label_dir=val_output_label_dir,
+            txt_file=val_txt_file,
+            cropped_txt_file=val_cropped_txt_file,
+            tile_size=tile_size,
+            overlap=overlap,
+        )
+
+    if need_augmentation:
+        balance_classes(
+            image_dir=output_image_dir,
+            label_dir=output_label_dir,
+            txt_file=cropped_txt_file,
+        )
+
+        balance_classes(
+            image_dir=val_output_image_dir,
+            label_dir=val_output_label_dir,
+            txt_file=val_cropped_txt_file,
+        )
+
+    model = YOLO("yolo11x.pt")
+
+    model.train(
+        data="datasets/GeoMap/data.yaml",
+        epochs=epochs,
+        imgsz=tile_size,  # Image size (same as crop size)
+        batch=batch_size,
+        multi_scale=True,
+        device=[0, 1] if torch.cuda.is_available() else "CPU",
+    )
+
