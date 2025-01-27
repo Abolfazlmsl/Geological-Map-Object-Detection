@@ -33,6 +33,14 @@ def update_txt_file(txt_file, new_paths):
         for path in new_paths:
             f.write(f"{path}\n")
 
+def convert_to_grayscale(image):
+    """
+    Convert an image to grayscale and ensure it has 3 channels.
+    """
+    gray_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    gray_image = cv2.cvtColor(gray_image, cv2.COLOR_GRAY2BGR)  # Ensure 3-channel format for consistency
+    return gray_image
+
 def crop_images_and_labels(image_dir, label_dir, output_image_dir, output_label_dir, txt_file, cropped_txt_file, tile_size=512, overlap=0):
     """
     Crop images and adjust labels for YOLO format. Save results and update the .txt file with new image paths.
@@ -51,8 +59,7 @@ def crop_images_and_labels(image_dir, label_dir, output_image_dir, output_label_
             continue
 
         # Convert image to grayscale
-        gray_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-        gray_image = cv2.cvtColor(gray_image, cv2.COLOR_GRAY2BGR)  # Ensure 3-channel format for consistency
+        image = convert_to_grayscale(image)
         
         h, w, _ = image.shape
         label_file = os.path.splitext(image_file)[0] + ".txt"

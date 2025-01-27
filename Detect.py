@@ -26,11 +26,11 @@ CLASS_COLORS = {
     5: (0, 255, 255),  # Feuchte - Light blue
     6: (0, 0, 0),  # Torf - Black
     7: (127, 127, 127),  # Bergsturz - Gray
-    8: (50, 20, 60),
-    9: (60, 50, 20),
-    10: (200, 150, 80),
-    11: (100, 200, 150),
-    12: (12, 52, 83),
+    8: (50, 20, 60), # Landslide 2 - 
+    9: (60, 50, 20), # Spring 2 - 
+    10: (200, 150, 80), # Spring 3 - 
+    11: (100, 200, 150), # Minepit 2 - 
+    12: (12, 52, 83), # Spring B2 - 
 }
 
 # Define class names
@@ -69,6 +69,20 @@ CLASS_THRESHOLDS = {
 
 # Classes to exclude completely (will not be shown on the image)
 EXCLUDED_CLASSES = {}  
+
+def convert_to_grayscale(image):
+    """
+    Convert an image to grayscale and return a 3-channel grayscale image.
+
+    Parameters:
+    image: np.ndarray, input color image
+
+    Returns:
+    gray_3channel: np.ndarray, 3-channel grayscale image
+    """
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    gray_3channel = cv2.cvtColor(gray, cv2.COLOR_GRAY2RGB)
+    return gray_3channel
 
 
 def non_max_suppression(detections, iou_threshold=0.5):
@@ -144,9 +158,8 @@ def detect_and_reconstruct(image_path, model, output_dir, tile_size=512, overlap
             if crop.shape[0] != tile_size or crop.shape[1] != tile_size:
                 continue
 
-            # Convert to grayscale for detection
-            crop_gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
-            crop_gray_3channel = cv2.cvtColor(crop_gray, cv2.COLOR_GRAY2RGB)
+            # Convert crop to grayscale using the new function
+            crop_gray_3channel = convert_to_grayscale(crop)
 
             # Run YOLO detection on the grayscale image
             results = model(crop_gray_3channel)
