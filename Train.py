@@ -19,10 +19,10 @@ need_cropping = True
 need_augmentation = True
 tile_size = 150
 overlap = 50
-epochs = 300
+epochs = 50
 batch_size = 16
 object_boundary_threshold = 0.1  # Minimum fraction of the bounding box that must remain in the crop
-class_balance_threshold = 1000  # Minimum number of samples per class for balance
+class_balance_threshold = 500  # Minimum number of samples per class for balance
 augmentation_repeats = 5  # Number of times to augment underrepresented classes
 
 def update_txt_file(txt_file, new_paths):
@@ -50,6 +50,10 @@ def crop_images_and_labels(image_dir, label_dir, output_image_dir, output_label_
             print(f"Error reading image: {image_file}")
             continue
 
+        # Convert image to grayscale
+        gray_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        gray_image = cv2.cvtColor(gray_image, cv2.COLOR_GRAY2BGR)  # Ensure 3-channel format for consistency
+        
         h, w, _ = image.shape
         label_file = os.path.splitext(image_file)[0] + ".txt"
         label_path = os.path.join(label_dir, label_file)
@@ -148,12 +152,24 @@ def apply_single_class_augmentation(image, labels, target_class):
     # Select only target class labels
     target_labels = aug_labels[aug_labels["class"] == target_class]
 
-    # Apply random augmentations
+    # Apply random scaling
     if random.random() > 0.5:
-        aug_image = cv2.flip(aug_image, 1)  # Horizontal flip
-        target_labels["x_center"] = 1 - target_labels["x_center"]
+        scale_factor = random.uniform(0.8, 1.2)  # Random scale between 80% to 120%
+        height, width = aug_image.shape[:2]
+        aug_image = cv2.resize(aug_image, (int(width * scale_factor), int(height * scale_factor)))
 
-    # Add other augmentations if needed (rotation, scaling, etc.)
+        # Adjust label coordinates based on scaling
+        target_labels["x_center"] *= scale_factor
+        target_labels["y_center"] *= scale_factor
+        target_labels["width"] *= scale_factor
+        target_labels["height"] *= scale_factor
+
+    # Apply random noise
+    if random.random() > 0.5:
+        noise = np.random.normal(0, 0.5, aug_image.shape).astype(np.uint8)  # Gaussian noise
+        aug_image = cv2.add(aug_image, noise)
+
+    # Change brightness and contrast
     if random.random() > 0.5:
         aug_image = cv2.convertScaleAbs(aug_image, alpha=1.2, beta=50)
 
@@ -300,4 +316,3 @@ if __name__ == "__main__":
         multi_scale=True,
         device=[0, 1] if torch.cuda.is_available() else "CPU",
     )
-

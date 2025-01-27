@@ -11,8 +11,8 @@ import os
 from ultralytics import YOLO
 import numpy as np
 
-tileSize = 128
-overlap = 75
+tileSize = 150
+overlap = 50
 threshold = 0.1
 iou_threshold = 0.1
 
@@ -58,11 +58,11 @@ CLASS_THRESHOLDS = {
     3: 0.5,  # Minepit 1
     4: 0.5,  # Hillside
     5: 0.5,  # Feuchte
-    6: 0.5,  # Torf
+    6: 0.05,  # Torf
     7: 0.5,  # Bergsturz
     8: 0.5,  # Landslide 2
-    9: 0.5,  # Spring 2
-    10: 0.5,  # Spring 3
+    9: 0.05,  # Spring 2
+    10: 0.05,  # Spring 3
     11: 0.5,  # Minepit 2
     12: 0.5,  # Spring B2
 }
@@ -85,21 +85,16 @@ def non_max_suppression(detections, iou_threshold=0.5):
     if len(detections) == 0:
         return []
 
-    # Convert detections to numpy array for easier processing
     boxes = np.array([det[:4] for det in detections])
     scores = np.array([det[5] for det in detections])
     classes = np.array([det[4] for det in detections])
 
-    # Get indices of boxes sorted by confidence score in descending order
     indices = np.argsort(scores)[::-1]
-
     keep = []
 
     while len(indices) > 0:
         current = indices[0]
         keep.append(current)
-        
-        # Compute IOU of the remaining boxes with the highest scored box
         remaining = indices[1:]
         ious = np.array([compute_iou(boxes[current], boxes[idx]) for idx in remaining])
         filtered_indices = np.where(ious < iou_threshold)[0]
@@ -141,36 +136,33 @@ def detect_and_reconstruct(image_path, model, output_dir, tile_size=512, overlap
     h, w, _ = image.shape
     step = tile_size - overlap
     result_image = image.copy()
-
-    # Create a list to store detections
     detections = []
 
-    # Tile the image and perform detection on each tile
     for y in range(0, h, step):
         for x in range(0, w, step):
             crop = image[y:y + tile_size, x:x + tile_size]
             if crop.shape[0] != tile_size or crop.shape[1] != tile_size:
                 continue
 
-            # Convert crop to RGB and run YOLO detection
-            crop_rgb = cv2.cvtColor(crop, cv2.COLOR_BGR2RGB)
-            results = model(crop_rgb)  # Detect symbols in the cropped image
+            # Convert to grayscale for detection
+            crop_gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+            crop_gray_3channel = cv2.cvtColor(crop_gray, cv2.COLOR_GRAY2RGB)
+
+            # Run YOLO detection on the grayscale image
+            results = model(crop_gray_3channel)
             crop_detections = results[0].boxes
 
             for box in crop_detections:
-                x1, y1, x2, y2 = map(int, box.xyxy[0])  
+                x1, y1, x2, y2 = map(int, box.xyxy[0])
                 cls = int(box.cls[0])
-                conf = float(box.conf[0])  
+                conf = float(box.conf[0])
 
-                
                 if cls in EXCLUDED_CLASSES:
                     continue
 
-                
                 if conf < CLASS_THRESHOLDS.get(cls, threshold):
                     continue
 
-                # Translate box coordinates to original image scale
                 adjusted_x1 = x1 + x
                 adjusted_y1 = y1 + y
                 adjusted_x2 = x2 + x
@@ -178,15 +170,13 @@ def detect_and_reconstruct(image_path, model, output_dir, tile_size=512, overlap
 
                 detections.append((adjusted_x1, adjusted_y1, adjusted_x2, adjusted_y2, cls, conf))
 
-    # Apply Non-Maximum Suppression to remove redundant boxes
     detections = non_max_suppression(detections, iou_threshold)
 
-    # Draw detections on the result image
     for (x1, y1, x2, y2, cls, conf) in detections:
-        color = CLASS_COLORS.get(cls, (0, 255, 255))  # Default color if class not found
+        color = CLASS_COLORS.get(cls, (0, 255, 255))
         label = CLASS_NAMES.get(cls, f"Class{cls}")
 
-        # Draw rectangle around the detection
+        # Draw rectangle around the detection on the original (color) image
         cv2.rectangle(result_image, (x1, y1), (x2, y2), color, 2)
 
         # Put the class label and confidence score near the bounding box
@@ -195,7 +185,6 @@ def detect_and_reconstruct(image_path, model, output_dir, tile_size=512, overlap
             cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2
         )
 
-    # Save the result image
     image_name = os.path.basename(image_path)
     output_path = os.path.join(output_dir, image_name.replace(".jpg", "_detected.jpg").replace(".png", "_detected.png"))
     cv2.imwrite(output_path, result_image)
