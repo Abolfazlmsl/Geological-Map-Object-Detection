@@ -17,8 +17,8 @@ from ultralytics import YOLO
 # Configuration
 need_cropping = True
 need_augmentation = True
-tile_size = 150
-overlap = 50
+tile_size = 400
+overlap = 150
 epochs = 50
 batch_size = 16
 object_boundary_threshold = 0.1  # Minimum fraction of the bounding box that must remain in the crop
