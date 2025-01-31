@@ -15,12 +15,12 @@ import torch
 from ultralytics import YOLO
 
 # Configuration
-need_cropping = True
-need_augmentation = True
-tile_size = 400
-overlap = 150
+need_cropping = False
+need_augmentation = False
+tile_size = 64
+overlap = 32
 epochs = 50
-batch_size = 16
+batch_size = 32
 object_boundary_threshold = 0.1  # Minimum fraction of the bounding box that must remain in the crop
 class_balance_threshold = 500  # Minimum number of samples per class for balance
 augmentation_repeats = 5  # Number of times to augment underrepresented classes
