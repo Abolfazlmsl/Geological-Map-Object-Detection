@@ -10,9 +10,10 @@ import cv2
 import os
 from ultralytics import YOLO
 import numpy as np
+import pandas as pd
 
 tile_sizes = [150, 400]
-overlaps = [70, 200]
+overlaps = [100, 250]
 iou_threshold = 0.01
 models = [YOLO("best150.pt"), YOLO("best400.pt")]
 
@@ -52,10 +53,10 @@ CLASS_NAMES = {
 
 # Add threshold for each class
 CLASS_THRESHOLDS = {
-    0: 0.7,  # Landslide 1
+    0: 0.6,  # Landslide 1
     1: 0.7,  # Strike
-    2: 0.5,  # Spring 1
-    3: 0.5,  # Minepit 1
+    2: 0.6,  # Spring 1
+    3: 0.6,  # Minepit 1
     4: 0.7,  # Hillside
     5: 0.05,  # Feuchte
     6: 0.05,  # Torf
@@ -63,12 +64,43 @@ CLASS_THRESHOLDS = {
     8: 0.05,  # Landslide 2
     9: 0.05,  # Spring 2
     10: 0.05,  # Spring 3
-    11: 0.05,  # Minepit 2
+    11: 0.4,  # Minepit 2
     12: 0.05,  # Spring B2
 }
 
 # Classes to exclude completely (will not be shown on the image)
 EXCLUDED_CLASSES = {12}  
+
+# def calculate_angle(x1, y1, x2, y2):
+#     dx = x2 - x1
+#     dy = y2 - y1
+#     angle = np.arctan2(dy, dx) * (180.0 / np.pi)
+#     return angle if angle >= 0 else angle + 180
+
+# def find_main_strike_angle(edges):
+#     lines = cv2.HoughLinesP(edges, 1, np.pi / 180, threshold=20, minLineLength=5, maxLineGap=5)
+    
+#     if lines is None:
+#         return None 
+    
+#     longest_line = None
+#     max_length = 0
+
+#     for line in lines:
+#         x1, y1, x2, y2 = line[0]
+#         length = np.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2) 
+#         if length > max_length:
+#             max_length = length
+#             longest_line = (x1, y1, x2, y2)
+
+#     if longest_line:
+#         x1, y1, x2, y2 = longest_line
+#         angle = np.arctan2(y2 - y1, x2 - x1) * (180.0 / np.pi)  
+#         vertical_angle = (90 - angle) % 180  
+#         return vertical_angle
+
+#     return None
+
 
 def convert_to_grayscale(image):
     """
@@ -175,11 +207,7 @@ def merge_detections(detections, iou_threshold=0.5):
                     intersection_area = max(0, intersection_x2 - intersection_x1) * max(0, intersection_y2 - intersection_y1)
                     non_overlap_area = area1 - intersection_area
                     
-                    if conf1 >= conf2:
-                        if intersection_area / area1 >= 0.9 and intersection_area / area2 < 0.7:
-                            keep = False
-                            break
-                    else:  
+                    if conf1 < conf2:
                         if non_overlap_area / area1 >= 0.4:
                             keep = True
                         else:
@@ -208,13 +236,30 @@ def process_image(image_path, output_dir):
         all_detections.extend(detect_symbols(image, model, tile_size, overlap))
     merged_detections = merge_detections(all_detections, iou_threshold)
     result_image = image.copy()
+    # image_name = os.path.basename(image_path)
+    # excel_path = os.path.join(output_dir, image_name.replace(".jpg", ".xlsx").replace(".png", ".xlsx"))
+
+    # data = []
     for x1, y1, x2, y2, cls, conf in merged_detections:
         color = CLASS_COLORS.get(cls, (0, 255, 255))
         label = CLASS_NAMES.get(cls, f"Class{cls}")
         cv2.rectangle(result_image, (x1, y1), (x2, y2), color, 2)
         cv2.putText(result_image, f"{label} {conf:.2f}", (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+        # width, height = x2 - x1, y2 - y1
+        # angle = calculate_angle(x1, y1, x2, y2) if cls == 1 else None
+        # if cls == 1:  
+        #     roi = image[y1:y2, x1:x2]  
+        #     edges = cv2.Canny(roi, 50, 150)  
+        #     angle = find_main_strike_angle(edges)
+        # else:
+        #     angle = None
+        # data.append([CLASS_NAMES.get(cls, f"Class{cls}"), x1, y1, x2, y2, width, height, conf, angle])
+
     output_path = os.path.join(output_dir, os.path.basename(image_path).replace(".jpg", "_detected.jpg").replace(".png", "_detected.png"))
     cv2.imwrite(output_path, result_image)
+    
+    # df = pd.DataFrame(data, columns=["Class", "X1", "Y1", "X2", "Y2", "Width", "Height", "Confidence", "Angle"])
+    # df.to_excel(excel_path, index=False)
 
 # Define input and output directories
 input_dir = "Input"

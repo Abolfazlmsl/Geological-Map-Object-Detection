@@ -15,15 +15,15 @@ import torch
 from ultralytics import YOLO
 
 # Configuration
-need_cropping = False
-need_augmentation = False
-tile_size = 64
-overlap = 32
-epochs = 50
-batch_size = 32
+need_cropping = True
+need_augmentation = True
+tile_size = 400
+overlap = 150
+epochs = 150
+batch_size = 8
 object_boundary_threshold = 0.1  # Minimum fraction of the bounding box that must remain in the crop
 class_balance_threshold = 500  # Minimum number of samples per class for balance
-augmentation_repeats = 5  # Number of times to augment underrepresented classes
+augmentation_repeats = 10  # Number of times to augment underrepresented classes
 
 def update_txt_file(txt_file, new_paths):
     """
@@ -160,25 +160,25 @@ def apply_single_class_augmentation(image, labels, target_class):
     target_labels = aug_labels[aug_labels["class"] == target_class]
 
     # Apply random scaling
-    if random.random() > 0.5:
-        scale_factor = random.uniform(0.8, 1.2)  # Random scale between 80% to 120%
-        height, width = aug_image.shape[:2]
-        aug_image = cv2.resize(aug_image, (int(width * scale_factor), int(height * scale_factor)))
+    # if random.random() > 0.5:
+    scale_factor = random.uniform(0.8, 1.2)  # Random scale between 80% to 120%
+    height, width = aug_image.shape[:2]
+    aug_image = cv2.resize(aug_image, (int(width * scale_factor), int(height * scale_factor)))
 
-        # Adjust label coordinates based on scaling
-        target_labels["x_center"] *= scale_factor
-        target_labels["y_center"] *= scale_factor
-        target_labels["width"] *= scale_factor
-        target_labels["height"] *= scale_factor
+    # Adjust label coordinates based on scaling
+    target_labels["x_center"] *= scale_factor
+    target_labels["y_center"] *= scale_factor
+    target_labels["width"] *= scale_factor
+    target_labels["height"] *= scale_factor
 
     # Apply random noise
-    if random.random() > 0.5:
-        noise = np.random.normal(0, 0.5, aug_image.shape).astype(np.uint8)  # Gaussian noise
-        aug_image = cv2.add(aug_image, noise)
+    # if random.random() > 0.5:
+    # noise = np.random.normal(0, 0.5, aug_image.shape).astype(np.uint8)  # Gaussian noise
+    # aug_image = cv2.add(aug_image, noise)
 
     # Change brightness and contrast
-    if random.random() > 0.5:
-        aug_image = cv2.convertScaleAbs(aug_image, alpha=1.2, beta=50)
+    # if random.random() > 0.5:
+    aug_image = cv2.convertScaleAbs(aug_image, alpha=1.2, beta=50)
 
     aug_labels.update(target_labels)
     return aug_image, aug_labels
@@ -243,6 +243,7 @@ def balance_classes(image_dir, label_dir, txt_file):
                 aug_image, aug_labels = apply_single_class_augmentation(image, labels, class_id)
 
                 # Save augmented image
+                aug_image = convert_to_grayscale(aug_image)
                 aug_image_filename = f"{os.path.splitext(label_file)[0]}_aug_{random.randint(0, 10000)}.jpg"
                 aug_image_path = os.path.join(image_dir, aug_image_filename)
                 cv2.imwrite(aug_image_path, aug_image)
@@ -321,5 +322,11 @@ if __name__ == "__main__":
         imgsz=tile_size,  # Image size (same as crop size)
         batch=batch_size,
         multi_scale=True,
+        lr0 = 0.005,  
+        lrf = 0.05,      
+        weight_decay = 0.0005, 
+        dropout = 0.4,
+        plots = True,
+        overlap_mask = False,
         device=[0, 1] if torch.cuda.is_available() else "CPU",
     )
